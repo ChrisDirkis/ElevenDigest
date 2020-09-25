@@ -95,18 +95,18 @@ def main():
 
     # get tweets
     tweets = get_tweets(api, accounts, offset)    
-    print(f"there were {len(tweets)} tweets from [{','.join(accounts)}] in the past {offset}")
     
     # filter tweets
     filtered_tweets = filter_tweets(tweets)
 
     # pick good tweets
     chosen_tweets = choose_tweets(filtered_tweets, THREAD_COUNT)
-    
 
     # send emails
+    print(f"sending emails to [{', '.join(addresses)}]")
+
     # TODO update email content
-    email_content = " , ".join((f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id_str}" for tweet in chosen_tweets))
+    email_content = "\n".join((f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id_str}" for tweet in chosen_tweets))
     for address in addresses: 
         message = Mail(
             from_email=FROM_EMAIL,
@@ -118,8 +118,8 @@ def main():
             sg = SendGridAPIClient(SENDGRID_API_KEY)
             sg.send(message)
         except Exception as e:
-            # TODO some errors don't have .message
-            pass
+            # TODO Actually handle errors maybe?
+            print(e)
 
 
 if __name__ == "__main__":
