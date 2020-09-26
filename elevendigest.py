@@ -13,16 +13,20 @@ def get_tweets(api, accounts, offset):
     now = datetime.now(tz=timezone.utc)
     earliest = now - offset
 
-    tweets = []
+    all_tweets = []
 
     for account in accounts:
         tweets_by_account = []
         max_id = None
         while True:
             # always returns at least one tweet, unless the listed acc has 0 tweets
-            tweets = api.GetUserTimeline(screen_name=account, count=200, max_id=max_id)
+            tweets = api.GetUserTimeline(screen_name=account, count=200, max_id=max_id, trim_user=True)
             relevant_tweets = [tweet for tweet in tweets if datetime.strptime(tweet.created_at, datetimeformat) > earliest]
             
+            # add the user manually, instead of fetching it
+            for tweet in relevant_tweets:
+                tweet.user.screen_name = account
+
             if len(relevant_tweets) == 0:
                 break
 
@@ -33,9 +37,9 @@ def get_tweets(api, accounts, offset):
 
             tweets_by_account += relevant_tweets
 
-        tweets += tweets_by_account
-    
-    return tweets
+        all_tweets += tweets_by_account
+
+    return all_tweets
 
 
 def filter_tweets(tweets):
@@ -67,6 +71,30 @@ def choose_tweets(tweets, thread_count):
     # we didn't have enough tweets, so just return the ones we got
     return chosen
 
+def generate_email_content(tweets, email_template, tweet_template):
+    addresses = list(set([tweet.user.screen_name for tweet in tweets]))
+    tweets_content = ""
+    for tweet in tweets:
+        html_text = tweet.full_text.replace("\n", "<br>")
+
+        name = tweet.user.screen_name 
+        if tweet.quoted_status:
+            name += " (reply)"
+
+        tweet_content = tweet_template \
+            .replace("{{name}}", name) \
+            .replace("{{url}}", f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id_str}") \
+            .replace("{{tweet}}", html_text)
+        tweets_content += tweet_content
+
+    
+    email_content = email_template \
+        .replace("{{names}}", ", ".join(addresses[:-1]) + f"and {addresses[-1]}" if len(addresses) > 1 else addresses[0]) \
+        .replace("{{tweets}}", tweets_content)
+    
+    return email_content
+   
+
 def main():
     load_dotenv()
 
@@ -86,12 +114,22 @@ def main():
     api = twitter.Api(consumer_key=TWITTER_CONSUMER_KEY,
                       consumer_secret=TWITTER_CONSUMER_SECRET,
                       access_token_key=TWITTER_ACCESS_TOKEN_KEY,
-                      access_token_secret=TWITTER_ACCESS_TOKEN_SECRET
+                      access_token_secret=TWITTER_ACCESS_TOKEN_SECRET,
+                      tweet_mode="extended"
     )
 
     remove_endline = lambda x: x[:-1] if x[-1] == "\n" else x
-    addresses = [remove_endline(line) for line in open("addresses.txt").readlines()]
-    accounts = [remove_endline(line) for line in open("accounts.txt").readlines()]
+
+    with open("addresses.txt") as addresses_file:
+        addresses = [remove_endline(line) for line in addresses_file.readlines()]
+    with open("accounts.txt") as accounts_file:
+        accounts = [remove_endline(line) for line in accounts_file.readlines()]
+
+    with open("email_template.html") as email_template_file:
+        email_template = email_template_file.read()
+    with open("tweet_template.html") as tweet_template_file:
+        tweet_template = tweet_template_file.read()
+
 
     # get tweets
     tweets = get_tweets(api, accounts, offset)    
@@ -104,16 +142,15 @@ def main():
 
     # send emails
     print(f"sending emails to [{', '.join(addresses)}]")
+    email_content = generate_email_content(chosen_tweets, email_template, tweet_template)
 
     sg = SendGridAPIClient(SENDGRID_API_KEY)
-    # TODO update email content
-    email_content = "\n".join((f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id_str}" for tweet in chosen_tweets))
     for address in addresses: 
         message = Mail(
             from_email=FROM_EMAIL,
             to_emails=address,
             subject="Eleven Digest Update",
-            plain_text_content = email_content,
+            html_content = email_content,
         )
         try:
             sg.send(message)
