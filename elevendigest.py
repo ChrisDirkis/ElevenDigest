@@ -105,6 +105,7 @@ def main():
     # send emails
     print(f"sending emails to [{', '.join(addresses)}]")
 
+    sg = SendGridAPIClient(SENDGRID_API_KEY)
     # TODO update email content
     email_content = "\n".join((f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id_str}" for tweet in chosen_tweets))
     for address in addresses: 
@@ -115,7 +116,6 @@ def main():
             plain_text_content = email_content,
         )
         try:
-            sg = SendGridAPIClient(SENDGRID_API_KEY)
             sg.send(message)
         except Exception as e:
             # TODO Actually handle errors maybe?
